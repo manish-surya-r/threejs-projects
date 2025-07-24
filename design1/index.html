@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio-Visual Three.js Experience</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: linear-gradient(135deg, #0a0a0a, #1a1a2e, #16213e);
+            font-family: 'Arial', sans-serif;
+        }
+        
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        button {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            margin: 5px;
+            transition: all 0.3s ease;
+            font-weight: bold;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+        
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        #info {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 12px;
+            max-width: 300px;
+            text-align: right;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="controls">
+            <button id="audioToggle">Start Audio</button>
+            <div style="margin-top: 10px; font-size: 12px;">
+                Move your mouse to interact!
+            </div>
+        </div>
+        <div id="info">
+            Particles react to audio frequencies and mouse movement.<br>
+            The visualization changes color and intensity based on sound input.
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        class AudioVisualizer {
+            constructor() {
+                this.scene = new THREE.Scene();
+                this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+                this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                this.particles = [];
+                this.audioContext = null;
+                this.analyser = null;
+                this.dataArray = null;
+                this.audioStarted = false;
+                this.mouse = new THREE.Vector2();
+                this.targetRotation = new THREE.Vector2();
+                this.currentRotation = new THREE.Vector2();
+                
+                this.init();
+                this.createParticles();
+                this.setupEventListeners();
+                this.animate();
+            }
+            
+            init() {
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setClearColor(0x000000, 0);
+                document.getElementById('container').appendChild(this.renderer.domElement);
+                
+                this.camera.position.z = 50;
+                
+                // Add ambient lighting
+                const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
+                this.scene.add(ambientLight);
+                
+                // Add point light that will move with mouse
+                this.pointLight = new THREE.PointLight(0xff6b6b, 1, 100);
+                this.pointLight.position.set(0, 0, 20);
+                this.scene.add(this.pointLight);
+            }
+            
+            createParticles() {
+                const particleCount = 1000;
+                const geometry = new THREE.BufferGeometry();
+                const positions = new Float32Array(particleCount * 3);
+                const colors = new Float32Array(particleCount * 3);
+                const sizes = new Float32Array(particleCount);
+                
+                for (let i = 0, i3 = 0; i < particleCount; i++, i3 += 3) {
+                    // Create a sphere distribution
+                    const radius = Math.random() * 40 + 10;
+                    const theta = Math.random() * Math.PI * 2;
+                    const phi = Math.acos(Math.random() * 2 - 1);
+                    
+                    positions[i3] = radius * Math.sin(phi) * Math.cos(theta);
+                    positions[i3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+                    positions[i3 + 2] = radius * Math.cos(phi);
+                    
+                    // Multi-color palette - vibrant colors
+                    const colorPalette = [
+                        { r: 1.0, g: 0.2, b: 0.5 },   // Hot pink
+                        { r: 0.2, g: 0.8, b: 1.0 },   // Cyan
+                        { r: 1.0, g: 0.6, b: 0.0 },   // Orange
+                        { r: 0.5, g: 1.0, b: 0.2 },   // Lime green
+                        { r: 0.8, g: 0.2, b: 1.0 },   // Purple
+                        { r: 1.0, g: 1.0, b: 0.2 },   // Yellow
+                        { r: 0.2, g: 1.0, b: 0.8 },   // Turquoise
+                        { r: 1.0, g: 0.4, b: 0.4 },   // Coral
+                        { r: 0.4, g: 0.4, b: 1.0 },   // Blue
+                        { r: 1.0, g: 0.8, b: 0.9 }    // Light pink
+                    ];
+                    
+                    const chosenColor = colorPalette[Math.floor(Math.random() * colorPalette.length)];
+                    colors[i3] = chosenColor.r;
+                    colors[i3 + 1] = chosenColor.g;
+                    colors[i3 + 2] = chosenColor.b;
+                    
+                    sizes[i] = Math.random() * 3 + 1;
+                }
+                
+                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+                geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+                
+                const material = new THREE.PointsMaterial({
+                    size: 2,
+                    sizeAttenuation: true,
+                    vertexColors: true,
+                    transparent: true,
+                    opacity: 0.8,
+                    blending: THREE.AdditiveBlending
+                });
+                
+                this.particleSystem = new THREE.Points(geometry, material);
+                this.scene.add(this.particleSystem);
+            }
+            
+            async setupAudio() {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    this.analyser = this.audioContext.createAnalyser();
+                    
+                    const source = this.audioContext.createMediaStreamSource(stream);
+                    source.connect(this.analyser);
+                    
+                    this.analyser.fftSize = 256;
+                    this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+                    
+                    this.audioStarted = true;
+                    document.getElementById('audioToggle').textContent = 'Audio Active';
+                    document.getElementById('audioToggle').disabled = true;
+                } catch (error) {
+                    console.log('Audio access denied or not available');
+                    // Continue without audio - mouse interaction will still work
+                }
+            }
+            
+            setupEventListeners() {
+                document.getElementById('audioToggle').addEventListener('click', () => {
+                    this.setupAudio();
+                });
+                
+                window.addEventListener('mousemove', (event) => {
+                    this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                    this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+                    
+                    this.targetRotation.x = this.mouse.y * 0.5;
+                    this.targetRotation.y = this.mouse.x * 0.5;
+                });
+                
+                window.addEventListener('resize', () => {
+                    this.camera.aspect = window.innerWidth / window.innerHeight;
+                    this.camera.updateProjectionMatrix();
+                    this.renderer.setSize(window.innerWidth, window.innerHeight);
+                });
+            }
+            
+            getAudioData() {
+                if (!this.audioStarted || !this.analyser) return 0;
+                
+                this.analyser.getByteFrequencyData(this.dataArray);
+                
+                // Calculate average frequency
+                let sum = 0;
+                for (let i = 0; i < this.dataArray.length; i++) {
+                    sum += this.dataArray[i];
+                }
+                return (sum / this.dataArray.length) / 255;
+            }
+            
+            animate() {
+                requestAnimationFrame(() => this.animate());
+                
+                const time = Date.now() * 0.001;
+                const audioData = this.getAudioData();
+                
+                // Smooth rotation interpolation
+                this.currentRotation.x += (this.targetRotation.x - this.currentRotation.x) * 0.05;
+                this.currentRotation.y += (this.targetRotation.y - this.currentRotation.y) * 0.05;
+                
+                // Rotate the entire particle system
+                this.particleSystem.rotation.x = this.currentRotation.x;
+                this.particleSystem.rotation.y = this.currentRotation.y;
+                this.particleSystem.rotation.z += 0.001;
+                
+                // Animate particles based on audio and mouse
+                const positions = this.particleSystem.geometry.attributes.position.array;
+                const colors = this.particleSystem.geometry.attributes.color.array;
+                
+                for (let i = 0; i < positions.length; i += 3) {
+                    const originalX = positions[i];
+                    const originalY = positions[i + 1];
+                    const originalZ = positions[i + 2];
+                    
+                    // Audio reactive movement
+                    positions[i] += Math.sin(time * 2 + originalY * 0.01) * audioData * 0.5;
+                    positions[i + 1] += Math.cos(time * 1.5 + originalX * 0.01) * audioData * 0.5;
+                    positions[i + 2] += Math.sin(time + originalX * 0.005 + originalY * 0.005) * audioData * 0.3;
+                    
+                    // Mouse interaction
+                    const mouseWorldX = this.mouse.x * 20;
+                    const mouseWorldY = this.mouse.y * 20;
+                    const distance = Math.sqrt(
+                        Math.pow(positions[i] - mouseWorldX, 2) + 
+                        Math.pow(positions[i + 1] - mouseWorldY, 2)
+                    );
+                    
+                    if (distance < 10) {
+                        const influence = (10 - distance) / 10;
+                        positions[i] += (mouseWorldX - positions[i]) * influence * 0.1;
+                        positions[i + 1] += (mouseWorldY - positions[i + 1]) * influence * 0.1;
+                    }
+                    
+                    // Enhanced color animation with multi-color palette
+                    const colorIndex = (i / 3) * 3;
+                    const baseColorIndex = Math.floor((i / 3) % 10); // Use original color index
+                    
+                    // Define the same color palette
+                    const colorPalette = [
+                        { r: 1.0, g: 0.2, b: 0.5 },   // Hot pink
+                        { r: 0.2, g: 0.8, b: 1.0 },   // Cyan
+                        { r: 1.0, g: 0.6, b: 0.0 },   // Orange
+                        { r: 0.5, g: 1.0, b: 0.2 },   // Lime green
+                        { r: 0.8, g: 0.2, b: 1.0 },   // Purple
+                        { r: 1.0, g: 1.0, b: 0.2 },   // Yellow
+                        { r: 0.2, g: 1.0, b: 0.8 },   // Turquoise
+                        { r: 1.0, g: 0.4, b: 0.4 },   // Coral
+                        { r: 0.4, g: 0.4, b: 1.0 },   // Blue
+                        { r: 1.0, g: 0.8, b: 0.9 }    // Light pink
+                    ];
+                    
+                    const baseColor = colorPalette[baseColorIndex];
+                    
+                    // Add subtle animation and audio reactivity while maintaining base color
+                    const intensity = 0.8 + audioData * 0.6 + Math.sin(time * 3 + i * 0.1) * 0.2;
+                    const shimmer = Math.sin(time * 5 + i * 0.05) * 0.1;
+                    
+                    colors[colorIndex] = Math.min(1.0, baseColor.r * intensity + shimmer);
+                    colors[colorIndex + 1] = Math.min(1.0, baseColor.g * intensity + shimmer);
+                    colors[colorIndex + 2] = Math.min(1.0, baseColor.b * intensity + shimmer);
+                }
+                
+                this.particleSystem.geometry.attributes.position.needsUpdate = true;
+                this.particleSystem.geometry.attributes.color.needsUpdate = true;
+                
+                // Update material properties
+                this.particleSystem.material.size = 2 + audioData * 3;
+                this.particleSystem.material.opacity = 0.6 + audioData * 0.4;
+                
+                // Update point light position based on mouse
+                this.pointLight.position.x = this.mouse.x * 30;
+                this.pointLight.position.y = this.mouse.y * 30;
+                
+                // Change light color based on audio
+                const hue = (time * 0.1 + audioData * 2) % 1;
+                this.pointLight.color.setHSL(hue, 0.8, 0.5 + audioData * 0.5);
+                
+                // Camera movement
+                this.camera.position.x = Math.sin(time * 0.1) * 5;
+                this.camera.position.y = Math.cos(time * 0.15) * 3;
+                this.camera.lookAt(this.scene.position);
+                
+                this.renderer.render(this.scene, this.camera);
+            }
+        }
+        
+        // Initialize the visualizer
+        new AudioVisualizer();
+    </script>
+</body>
+</html>
